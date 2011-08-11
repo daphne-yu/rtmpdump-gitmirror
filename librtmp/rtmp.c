@@ -4309,10 +4309,14 @@ RTMP_Write(RTMP *r, const char *buf, int size)
     {
       if (!pkt->m_nBytesRead)
 	{
-	  if (size < 11) {
+      if (s2 <= 11) {
+    	  RTMP_Log(RTMP_LOGDEBUG, "%s, packet remainder s2 = %d <= 11, returning %d", __FUNCTION__, s2, size - s2);
 	    /* FLV pkt too small */
-	    return 0;
+	    return size - s2;
 	  }
+
+      RTMP_Log(RTMP_LOGDEBUG, "Parsing packet...");
+      RTMP_LogHexString(RTMP_LOGDEBUG2, (const uint8_t*)buf, 32);
 
 	  if (buf[0] == 'F' && buf[1] == 'L' && buf[2] == 'V')
 	    {
@@ -4329,6 +4333,8 @@ RTMP_Write(RTMP *r, const char *buf, int size)
 	  buf += 3;
 	  s2 -= 11;
 
+	  RTMP_Log(RTMP_LOGDEBUG, "RTMP_Write: New packet: type=%d, bodySize=%d", pkt->m_packetType, pkt->m_nBodySize);
+
 	  if (((pkt->m_packetType == 0x08 || pkt->m_packetType == 0x09) &&
 	    !pkt->m_nTimeStamp) || pkt->m_packetType == 0x12)
 	    {
@@ -4340,6 +4346,12 @@ RTMP_Write(RTMP *r, const char *buf, int size)
 	    {
 	      pkt->m_headerType = RTMP_PACKET_SIZE_MEDIUM;
 	    }
+
+	  if(!(pkt->m_packetType == 0x08 || pkt->m_packetType == 0x09 || pkt->m_packetType == 0x12)) {
+		  RTMP_Log(RTMP_LOGWARNING, "%s, unknown packet type %d, returning -1", __FUNCTION__, pkt->m_packetType);
+		  RTMP_LogHexString(RTMP_LOGDEBUG2, (uint8_t *)(buf - 11), size);
+		  return -1;
+	  }
 
 	  if (!RTMPPacket_Alloc(pkt, pkt->m_nBodySize))
 	    {
@@ -4357,16 +4369,21 @@ RTMP_Write(RTMP *r, const char *buf, int size)
       else
 	{
 	  enc = pkt->m_body + pkt->m_nBytesRead;
+	  RTMP_Log(RTMP_LOGDEBUG, "RTMP_Write: Appending existing packet, %d bytes read so far", pkt->m_nBytesRead);
 	}
       num = pkt->m_nBodySize - pkt->m_nBytesRead;
       if (num > s2)
-	num = s2;
+      {
+    	  RTMP_Log(RTMP_LOGDEBUG, "%s: num = %d > s2 = %d => num = %d", __FUNCTION__, num, s2, s2);
+    	  num = s2;
+      }
       memcpy(enc, buf, num);
       pkt->m_nBytesRead += num;
       s2 -= num;
       buf += num;
       if (pkt->m_nBytesRead == pkt->m_nBodySize)
 	{
+    	  RTMP_Log(RTMP_LOGDEBUG, "RTMP_Write: Packet complete, sending...");
 	  ret = RTMP_SendPacket(r, pkt, FALSE);
 	  RTMPPacket_Free(pkt);
 	  pkt->m_nBytesRead = 0;
@@ -4374,9 +4391,11 @@ RTMP_Write(RTMP *r, const char *buf, int size)
 	    return -1;
 	  buf += 4;
 	  s2 -= 4;
-	  if (s2 < 0)
+	  if (s2 < 0) {
+		  RTMP_Log(RTMP_LOGDEBUG, "%s: negative s2 = %d", __FUNCTION__, s2);
 	    break;
+	  }
 	}
     }
-  return size+s2;
+  return size - s2;
 }
